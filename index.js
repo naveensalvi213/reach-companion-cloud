@@ -668,8 +668,11 @@ app.post('/api/tokens', (req, res) => {
   const data = getTokensData();
   const newToken = { id: Date.now().toString(), type: type || 'twitter', label: label || 'Token', value, ct0: ct0 || '' };
   data.tokens.push(newToken);
-  if (type === 'reddit') { if (!data.activeRedditTokenId) data.activeRedditTokenId = newToken.id; }
-  else { if (!data.activeTwitterTokenId) data.activeTwitterTokenId = newToken.id; }
+  if (type === 'reddit') {
+    data.activeRedditTokenId = newToken.id;
+  } else {
+    data.activeTwitterTokenId = newToken.id;
+  }
   saveTokensData(data);
   res.json(data);
 });
