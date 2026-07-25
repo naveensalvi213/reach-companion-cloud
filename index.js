@@ -8,6 +8,14 @@ const { execFile } = require('child_process');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
+// --- Anti-Crash Global Safety Handlers ---
+process.on('uncaughtException', (err) => {
+  console.error('[Global Safe Handler] Uncaught Exception:', err?.message || err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Global Safe Handler] Unhandled Rejection:', reason);
+});
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -326,7 +334,7 @@ const sendTelegramMessage = (text) => {
 
 const pollTelegramChatId = () => {
   const https = require('https');
-  https.get(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates`, (res) => {
+  const req = https.get(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates`, (res) => {
     let data = '';
     res.on('data', chunk => data += chunk);
     res.on('end', () => {
@@ -343,6 +351,9 @@ const pollTelegramChatId = () => {
         }
       } catch (e) {}
     });
+  });
+  req.on('error', (err) => {
+    // Ignore transient network errors so Node process never exits
   });
 };
 
