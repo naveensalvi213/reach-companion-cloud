@@ -671,31 +671,19 @@ app.get('/api/debug-scrape', async (req, res) => {
   const cfg = getConfig();
   const tokens = getTokensData();
   const activeTwitter = tokens.tokens.find(t => t.id === tokens.activeTwitterTokenId);
-  const activeReddit = tokens.tokens.find(t => t.id === tokens.activeRedditTokenId);
 
-  const diag = {
-    activeTwitter: activeTwitter ? { label: activeTwitter.label, hasValue: !!activeTwitter.value, hasCt0: !!activeTwitter.ct0 } : null,
-    activeReddit: activeReddit ? { label: activeReddit.label, hasValue: !!activeReddit.value } : null,
-    keywords: cfg.keywords
-  };
+  const envs = { PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', TWITTER_AUTH_TOKEN: activeTwitter?.value || '' };
+  if (activeTwitter?.ct0) envs.TWITTER_CT0 = activeTwitter.ct0;
 
-  try {
-    const redditResults = await scrapeRedditCli(cfg.keywords.slice(0, 1), 24, activeReddit?.value);
-    diag.redditCount = redditResults.length;
-    diag.redditSample = redditResults.slice(0, 2);
-  } catch(e) {
-    diag.redditError = e.message;
-  }
+  const twRes1 = await runCli('twitter', ['search', 'hiring video editor', '--type', 'latest', '--json'], envs);
+  const twRes2 = await runCli('python3', ['-m', 'twitter_cli.cli', 'search', 'hiring video editor', '--type', 'latest', '--json'], envs);
+  const pathCheck = await runCli('which', ['twitter', 'python3']);
 
-  try {
-    const twitterResults = await scrapeTwitterCli(cfg.keywords.slice(0, 1), 24, activeTwitter?.value, activeTwitter?.ct0, cfg.excludes);
-    diag.twitterCount = twitterResults.length;
-    diag.twitterSample = twitterResults.slice(0, 2);
-  } catch(e) {
-    diag.twitterError = e.message;
-  }
-
-  res.json(diag);
+  res.json({
+    pathCheck,
+    twRes1: { error: twRes1.error?.message, stdoutLen: twRes1.stdout.length, stderr: twRes1.stderr },
+    twRes2: { error: twRes2.error?.message, stdoutLen: twRes2.stdout.length, stderr: twRes2.stderr }
+  });
 });
 
 app.get('/api/export-data', (req, res) => {
