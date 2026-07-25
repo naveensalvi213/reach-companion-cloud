@@ -408,8 +408,12 @@
     function switchTab(tabId) {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-      event.target.classList.add('active');
-      document.getElementById('tab-' + tabId).classList.add('active');
+      
+      const btn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick').includes(tabId));
+      if (btn) btn.classList.add('active');
+      
+      const tab = document.getElementById('tab-' + tabId);
+      if (tab) tab.classList.add('active');
     }
 
     function toggleTokenFields() {
@@ -710,7 +714,7 @@
         return;
       }
 
-      const templates = currentData?.templates?.templates || [];
+      const templates = templatesData.templates || [];
       const templateOpts = templates.map(t => `<option value="${t.id}">${t.keyword ? '[' + t.keyword + '] ' : ''}${t.text.substring(0, 30)}...</option>`).join('');
 
       container.innerHTML = manualSearchResults.map((post, idx) => `
@@ -741,7 +745,7 @@
 
     function applyTemplateToManual(idx, tplId) {
       if (!tplId) return;
-      const templates = currentData?.templates?.templates || [];
+      const templates = templatesData.templates || [];
       const found = templates.find(t => t.id === tplId);
       if (found) {
         document.getElementById(`manualMsg_${idx}`).value = found.text;
