@@ -303,6 +303,61 @@ const scrapeTwitterCli = async (keywords, hours, tokenValue, ct0Value, excludeKe
   return Array.from(allTweetsMap.values());
 };
 
+const scrapeRedditNative = (keyword) => {
+  return new Promise((resolve) => {
+    const https = require('https');
+    const url = `https://www.reddit.com/search.rss?q=${encodeURIComponent(keyword)}&sort=new`;
+    const req = https.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        const posts = [];
+        try {
+          const blocks = data.split('<entry>');
+          for (let i = 1; i < blocks.length; i++) {
+            const block = blocks[i].split('</entry>')[0];
+            const titleMatch = block.match(/<title>([^<]+)<\/title>/);
+            const linkMatch = block.match(/href="([^"]+)"/);
+            const authorMatch = block.match(/<name>([^<]+)<\/name>/);
+            const updatedMatch = block.match(/<updated>([^<]+)<\/updated>/);
+
+            const title = titleMatch ? titleMatch[1] : '';
+            const postUrl = linkMatch ? linkMatch[1] : '';
+            const rawAuthor = authorMatch ? authorMatch[1] : '';
+            const author = rawAuthor.replace('/u/', '').replace('u/', '');
+            const postTime = updatedMatch ? new Date(updatedMatch[1]).getTime() : Date.now();
+
+            if (title && postUrl) {
+              const postId = 'reddit_' + Buffer.from(postUrl).toString('hex').substring(0, 16);
+              posts.push({
+                id: postId,
+                platform: 'reddit',
+                time: new Date(postTime).toISOString(),
+                postTime,
+                userProfile: {
+                  name: author || 'Reddit User',
+                  handle: `u/${author || 'user'}`,
+                  image: 'https://www.redditstatic.com/avatars/avatar_default_02_FF4500.png'
+                },
+                text: title,
+                postUrl,
+                dmUrl: `https://www.reddit.com/message/compose/?to=${author}`
+              });
+            }
+          }
+        } catch(e) {}
+        resolve(posts);
+      });
+    });
+    req.on('error', () => resolve([]));
+    req.end();
+  });
+};
+
 const scrapeRedditCli = async (keywords, hours, tokenValue) => {
   if (!keywords || keywords.length === 0) return [];
   const allPostsMap = new Map();
@@ -323,16 +378,21 @@ const scrapeRedditCli = async (keywords, hours, tokenValue) => {
         let { stdout: out2 } = await runCli('python3', ['-m', 'rdt_cli', ...args], envs);
         stdout = out2;
       }
-      // Fallback 2: Check ~/.local/bin/rdt
-      if (!stdout) {
-        const altPath = path.join(home, '.local', 'bin', 'rdt');
-        let { stdout: out3 } = await runCli(altPath, args, envs);
-        stdout = out3;
+
+      let posts = [];
+      if (stdout) {
+        try {
+          let listing = JSON.parse(stdout);
+          posts = Array.isArray(listing) ? listing : (listing?.items || listing?.data || []);
+        } catch(e) {}
       }
 
-      if (!stdout) continue;
-      let listing = JSON.parse(stdout);
-      let posts = Array.isArray(listing) ? listing : (listing?.items || listing?.data || []);
+      // Native Node RSS Fallback for 100% Cloud Execution
+      if (posts.length === 0) {
+        const nativePosts = await scrapeRedditNative(keyword);
+        nativePosts.forEach(p => allPostsMap.set(p.id, p));
+        continue;
+      }
 
       posts.forEach(post => {
         const postTime = (post.created_utc || 0) * 1000;
@@ -354,7 +414,10 @@ const scrapeRedditCli = async (keywords, hours, tokenValue) => {
           allPostsMap.set(mappedPost.id, mappedPost);
         }
       });
-    } catch (err) {}
+    } catch (err) {
+      const nativePosts = await scrapeRedditNative(keyword);
+      nativePosts.forEach(p => allPostsMap.set(p.id, p));
+    }
   }
   return Array.from(allPostsMap.values());
 };
