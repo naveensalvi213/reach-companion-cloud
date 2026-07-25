@@ -181,7 +181,7 @@ const getConfig = () => {
   try {
     const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
     if (cfg.autoOutreachEnabled === undefined) cfg.autoOutreachEnabled = true;
-    if (!cfg.xActionConfig) cfg.xActionConfig = 'both';
+    cfg.xActionConfig = 'comment';
     return cfg;
   } catch (e) {
     return { 
@@ -189,7 +189,7 @@ const getConfig = () => {
       excludes: ['?'], 
       intervalMinutes: 5,
       autoOutreachEnabled: true,
-      xActionConfig: 'both'
+      xActionConfig: 'comment'
     };
   }
 };
@@ -296,26 +296,57 @@ const scrapeRedditCli = async (keywords, hours, tokenValue) => {
   return Array.from(allPostsMap.values());
 };
 
+// --- Telegram Bot Notifications Helper ---
+const TELEGRAM_BOT_TOKEN = '8911468384:AAGT7-Jn5FCPUEUSghEBLT8Jth6_-i-80fw';
+let telegramChatId = null;
+
+const sendTelegramMessage = (text) => {
+  if (!telegramChatId) return;
+  const https = require('https');
+  const payload = JSON.stringify({ chat_id: telegramChatId, text, parse_mode: 'HTML' });
+  const req = https.request(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  req.on('error', () => {});
+  req.write(payload);
+  req.end();
+};
+
+const pollTelegramChatId = () => {
+  const https = require('https');
+  https.get(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates`, (res) => {
+    let data = '';
+    res.on('data', chunk => data += chunk);
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(data);
+        if (json.ok && json.result && json.result.length > 0) {
+          const lastMsg = json.result[json.result.length - 1];
+          const chatId = lastMsg?.message?.chat?.id || lastMsg?.channel_post?.chat?.id;
+          if (chatId && telegramChatId !== chatId) {
+            telegramChatId = chatId;
+            console.log(`[Telegram Bot] Connected to user Chat ID: ${telegramChatId}`);
+            sendTelegramMessage('🟢 <b>ReachCompanion Telegram Bot Connected!</b>\n\nYou will receive live notifications here whenever an auto-comment is posted or a reply is received!');
+          }
+        }
+      } catch (e) {}
+    });
+  });
+};
+
+setInterval(pollTelegramChatId, 10000);
+pollTelegramChatId();
+
 // --- Execution Dispatch Helper ---
-const executeActionForPost = async (post, xActionConfig = 'both') => {
+const executeActionForPost = async (post, xActionConfig = 'comment') => {
   const templatesData = getTemplatesData();
   if (templatesData.templates.length === 0) {
     throw new Error('No DM templates configured.');
   }
 
-  const postTextLower = (post.text || '').toLowerCase();
-  const matchingTemplates = templatesData.templates.filter(t => 
-    t.keyword && postTextLower.includes(t.keyword.trim().toLowerCase())
-  );
-  
-  let templateObj;
-  if (matchingTemplates.length > 0) {
-    templateObj = matchingTemplates[Math.floor(Math.random() * matchingTemplates.length)];
-  } else {
-    const fallbacks = templatesData.templates.filter(t => !t.keyword);
-    const pool = fallbacks.length > 0 ? fallbacks : templatesData.templates;
-    templateObj = pool[Math.floor(Math.random() * pool.length)];
-  }
+  // Switch templates completely randomly across all templates
+  const templateObj = templatesData.templates[Math.floor(Math.random() * templatesData.templates.length)];
 
   const message = templateObj.text
     .replace(/{username}/g, post.userProfile?.name || '')
@@ -466,6 +497,9 @@ const runBackgroundSearch = async () => {
             saveSentLogs(sentLogs);
             console.log(`[24/7 Engine] Successfully sent auto-outreach to ${post.userProfile.handle}`);
             
+            // Telegram Push Notification
+            sendTelegramMessage(`🚀 <b>Auto-Comment Posted!</b>\n\n👤 <b>Target:</b> ${post.userProfile?.name} (${post.userProfile?.handle})\n🌐 <b>Platform:</b> ${post.platform.toUpperCase()}\n💬 <b>Comment Text:</b> "${res.message}"\n🔗 <a href="${post.postUrl}">View Original Post</a>`);
+
             // Anti-spam delay: wait 30s before next auto-send
             await new Promise(r => setTimeout(r, 30000));
           } catch (err) {
