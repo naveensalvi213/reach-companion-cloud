@@ -116,8 +116,14 @@ const REDDIT_PATH = isWin ? path.join(home, '.agent-reach-venv', 'Scripts', 'rdt
 
 const runCli = (cmd, args, envVars = {}) => {
   return new Promise((resolve) => {
+    const pyPkgPath = path.join(__dirname, 'python_packages');
+    const existingPyPath = process.env.PYTHONPATH || '';
     const options = {
-      env: { ...process.env, ...envVars },
+      env: { 
+        ...process.env, 
+        PYTHONPATH: existingPyPath ? `${pyPkgPath}:${existingPyPath}` : pyPkgPath,
+        ...envVars 
+      },
       maxBuffer: 10 * 1024 * 1024
     };
     execFile(cmd, args, options, (error, stdout, stderr) => {

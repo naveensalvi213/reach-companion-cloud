@@ -4,7 +4,7 @@
   "description": "24/7 Automated Outreach Engine for X and Reddit",
   "main": "index.js",
   "scripts": {
-    "build": "python3 -m pip install --break-system-packages agent-reach twitter_cli rdt x_client_transaction || python3 -m pip install agent-reach twitter_cli rdt x_client_transaction || true",
+    "build": "python3 -m pip install agent-reach twitter_cli rdt x_client_transaction -t ./python_packages --upgrade || true",
     "start": "node index.js"
   },
   "dependencies": {
