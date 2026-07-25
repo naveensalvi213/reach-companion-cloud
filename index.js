@@ -836,7 +836,7 @@ app.get('/api/debug-dir', (req, res) => {
 
 app.get('/api/debug-install', (req, res) => {
   const { exec } = require('child_process');
-  exec('python3 -m pip install --target ./python_packages curl-cffi', (err, stdout, stderr) => {
+  exec('python3 -m pip install --target ./python_packages --upgrade agent-reach twitter-cli-py rdt-cli curl-cffi x-client-transaction soupsieve', (err, stdout, stderr) => {
     res.json({
       stdout: stdout || '',
       stderr: stderr || '',
