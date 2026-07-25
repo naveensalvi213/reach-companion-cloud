@@ -202,6 +202,7 @@
 
   <nav class="nav-tabs">
     <button class="tab-btn active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+    <button class="tab-btn" onclick="switchTab('manual')">🕹️ Manual</button>
     <button class="tab-btn" onclick="switchTab('accounts')">🔑 Accounts (X & Reddit)</button>
     <button class="tab-btn" onclick="switchTab('keywords')">🔍 Keywords</button>
     <button class="tab-btn" onclick="switchTab('templates')">📝 DM Templates</button>
@@ -255,6 +256,45 @@
         <button class="btn btn-outline btn-sm" onclick="loadData()">🔄 Refresh</button>
       </div>
       <div id="logsContainer">Loading...</div>
+    </div>
+  <!-- TAB: MANUAL LEAD SEARCH & OUTREACH -->
+  <div id="tab-manual" class="tab-content">
+    <div class="card">
+      <div class="card-title">🕹️ Manual Lead Search & Single Outreach</div>
+      <form onsubmit="runManualSearch(event)">
+        <div class="form-group">
+          <label>Search Keywords (Comma Separated)</label>
+          <input type="text" id="manualQuery" placeholder="e.g. hiring video editor, need thumbnail" required />
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;" class="form-group">
+          <div>
+            <label>Platform</label>
+            <select id="manualPlatform">
+              <option value="all">All Platforms</option>
+              <option value="twitter">X (Twitter)</option>
+              <option value="reddit">Reddit</option>
+            </select>
+          </div>
+          <div>
+            <label>Hours Lookback</label>
+            <input type="number" id="manualHours" value="24" min="1" max="168" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Exclude Keywords</label>
+          <input type="text" id="manualExcludes" placeholder="e.g. agency, hiring manager" />
+        </div>
+        <button type="submit" id="manualSearchBtn" class="btn btn-primary">🔍 Find Posts Now</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>Found Manual Posts (<span id="manualResultCount">0</span>)</span>
+      </div>
+      <div id="manualResultsContainer">
+        <p style="color: var(--text-sub); font-size: 0.85rem; text-align: center;">Enter keywords above and tap "Find Posts Now" to search.</p>
+      </div>
     </div>
   </div>
 
@@ -627,6 +667,117 @@
         }
       } catch (err) {
         alert('Invalid JSON backup file.');
+      }
+    }
+
+    let manualSearchResults = [];
+
+    async function runManualSearch(e) {
+      if (e) e.preventDefault();
+      const query = document.getElementById('manualQuery').value;
+      const platform = document.getElementById('manualPlatform').value;
+      const hours = document.getElementById('manualHours').value;
+      const excludes = document.getElementById('manualExcludes').value;
+      const searchBtn = document.getElementById('manualSearchBtn');
+      const container = document.getElementById('manualResultsContainer');
+
+      searchBtn.innerText = '⏳ Searching...';
+      searchBtn.disabled = true;
+      container.innerHTML = '<p style="color: var(--text-sub); font-size: 0.85rem; text-align: center;">Scanning live posts on X & Reddit...</p>';
+
+      try {
+        const res = await fetch('/api/manual-search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keywords: query, platform, hours, excludes })
+        });
+        const data = await res.json();
+        manualSearchResults = data.posts || [];
+        document.getElementById('manualResultCount').innerText = manualSearchResults.length;
+        renderManualResults();
+      } catch (err) {
+        container.innerHTML = '<p style="color: var(--red); font-size: 0.85rem; text-align: center;">Failed to search posts. Check active tokens.</p>';
+      } finally {
+        searchBtn.innerText = '🔍 Find Posts Now';
+        searchBtn.disabled = false;
+      }
+    }
+
+    function renderManualResults() {
+      const container = document.getElementById('manualResultsContainer');
+      if (manualSearchResults.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-sub); font-size: 0.85rem; text-align: center;">No matching posts found.</p>';
+        return;
+      }
+
+      const templates = currentData?.templates?.templates || [];
+      const templateOpts = templates.map(t => `<option value="${t.id}">${t.keyword ? '[' + t.keyword + '] ' : ''}${t.text.substring(0, 30)}...</option>`).join('');
+
+      container.innerHTML = manualSearchResults.map((post, idx) => `
+        <div class="log-item" style="margin-bottom: 0.85rem;">
+          <div class="log-header">
+            <span style="color: var(--primary);">${post.userProfile ? post.userProfile.name : 'User'} (${post.userProfile ? post.userProfile.handle : ''})</span>
+            <span style="color: var(--green); font-size: 0.75rem;">${post.platform.toUpperCase()}</span>
+          </div>
+          <div style="font-size: 0.85rem; margin: 0.4rem 0;">${post.text}</div>
+          <div style="font-size: 0.75rem; color: var(--text-sub); margin-bottom: 0.5rem;">${new Date(post.time).toLocaleString()}</div>
+          
+          <div class="form-group" style="margin-bottom: 0.4rem;">
+            <label style="font-size: 0.75rem;">Select Template or Type Message:</label>
+            <select style="margin-bottom: 0.3rem;" onchange="applyTemplateToManual(${idx}, this.value)">
+              <option value="">-- Random / Custom Message --</option>
+              ${templateOpts}
+            </select>
+            <textarea id="manualMsg_${idx}" placeholder="Type custom message or pick a template..."></textarea>
+          </div>
+
+          <div style="display: flex; gap: 0.4rem;">
+            <button id="sendBtn_${idx}" class="btn btn-green btn-sm" style="flex: 1;" onclick="sendSinglePost(${idx})">🚀 Send Outreach</button>
+            <a href="${post.postUrl}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration: none;">🔗 View Post</a>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function applyTemplateToManual(idx, tplId) {
+      if (!tplId) return;
+      const templates = currentData?.templates?.templates || [];
+      const found = templates.find(t => t.id === tplId);
+      if (found) {
+        document.getElementById(`manualMsg_${idx}`).value = found.text;
+      }
+    }
+
+    async function sendSinglePost(idx) {
+      const post = manualSearchResults[idx];
+      if (!post) return;
+      const msgInput = document.getElementById(`manualMsg_${idx}`);
+      const btn = document.getElementById(`sendBtn_${idx}`);
+      const message = msgInput ? msgInput.value : '';
+
+      btn.innerText = '⏳ Sending...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/send-single-post', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ post, message, action: 'comment' })
+        });
+        const data = await res.json();
+        if (data.success) {
+          btn.innerText = '✅ Sent!';
+          btn.style.background = 'var(--green)';
+          alert('🚀 Outreach sent successfully!');
+        } else {
+          alert('Failed: ' + (data.error || 'Unknown error'));
+          btn.innerText = '🚀 Send Outreach';
+          btn.disabled = false;
+        }
+      } catch (err) {
+        alert('Error sending outreach: ' + err.message);
+        btn.innerText = '🚀 Send Outreach';
+        btn.disabled = false;
       }
     }
 

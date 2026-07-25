@@ -863,6 +863,109 @@ app.get('/api/inbox-posts', async (req, res) => {
 
 app.get('/api/sent-logs', (req, res) => res.json({ logs: getSentLogs() }));
 
+app.post('/api/manual-search', async (req, res) => {
+  try {
+    const { keywords, platform, hours, excludes } = req.body;
+    const rawKeywords = Array.isArray(keywords) ? keywords : (keywords ? keywords.split(',').map(s => s.trim()) : []);
+    if (rawKeywords.length === 0) return res.status(400).json({ error: 'Keywords are required' });
+
+    const hoursNum = parseInt(hours) || 24;
+    const excludeList = Array.isArray(excludes) ? excludes : (excludes ? excludes.split(',').map(s => s.trim()) : []);
+    const data = getTokensData();
+    const activeTwitter = data.tokens.find(t => t.id === data.activeTwitterTokenId);
+    const activeReddit = data.tokens.find(t => t.id === data.activeRedditTokenId);
+
+    let redditResults = [];
+    let twitterResults = [];
+
+    if (!platform || platform === 'all' || platform === 'reddit') {
+      redditResults = await scrapeRedditCli(rawKeywords, hoursNum, activeReddit?.value);
+    }
+    if (!platform || platform === 'all' || platform === 'twitter') {
+      twitterResults = await scrapeTwitterCli(rawKeywords, hoursNum, activeTwitter?.value, activeTwitter?.ct0, excludeList);
+    }
+
+    let allResults = [...twitterResults, ...redditResults];
+    if (excludeList.length > 0) {
+      allResults = allResults.filter(item => {
+        const lowerText = item.text.toLowerCase();
+        return !excludeList.some(ex => lowerText.includes(ex.toLowerCase()));
+      });
+    }
+
+    res.json({ posts: allResults });
+  } catch (err) {
+    console.error('Manual Search Error:', err);
+    res.status(500).json({ error: 'Failed to perform manual search: ' + err.message });
+  }
+});
+
+app.post('/api/send-single-post', async (req, res) => {
+  try {
+    const { post, message, action } = req.body;
+    if (!post || !post.id) return res.status(400).json({ error: 'Post object required' });
+
+    let sentMessage = message;
+    if (!sentMessage || !sentMessage.trim()) {
+      const templatesData = getTemplatesData();
+      if (templatesData.templates.length === 0) throw new Error('No DM templates available.');
+      const templateObj = templatesData.templates[Math.floor(Math.random() * templatesData.templates.length)];
+      sentMessage = templateObj.text;
+    }
+
+    const data = getTokensData();
+    const activeTwitter = data.tokens.find(t => t.id === data.activeTwitterTokenId);
+    const activeReddit = data.tokens.find(t => t.id === data.activeRedditTokenId);
+
+    const isReddit = post.platform === 'reddit' || post.id.startsWith('reddit_');
+    const xActionConfig = action || 'comment';
+
+    if (isReddit) {
+      if (!activeReddit || !activeReddit.value) throw new Error('No active Reddit token');
+      const pyCode = `
+import sys, json
+from rdt_cli.client import RedditClient
+client = RedditClient(session_cookie="${activeReddit.value}")
+try:
+    client.send_message("${post.userProfile?.handle?.replace('u/', '')}", ${JSON.stringify(sentMessage)})
+    print(json.dumps({"status": "sent"}))
+except Exception as e:
+    print(json.dumps({"error": str(e)}))
+`;
+      const pythonPath = isWin ? path.join(home, '.agent-reach-venv', 'Scripts', 'python.exe') : 'python3';
+      const { stdout, error, stderr } = await runCli(pythonPath, ['-c', pyCode], { PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' });
+      if (error) throw new Error(stderr || error.message);
+      const resp = JSON.parse(stdout || '{}');
+      if (resp.error) throw new Error(resp.error);
+    } else {
+      if (!activeTwitter || !activeTwitter.value) throw new Error('No active Twitter token');
+      const bareTweetId = post.id.replace('twitter_', '');
+      await sendNativeTwitterComment(activeTwitter.value, activeTwitter.ct0, bareTweetId, sentMessage);
+    }
+
+    const sentLogs = getSentLogs();
+    const logEntry = {
+      id: Date.now().toString() + '_' + Math.random().toString(36).substring(2, 6),
+      postId: post.id,
+      platform: post.platform,
+      userProfile: post.userProfile,
+      action: xActionConfig,
+      message: sentMessage,
+      timestamp: new Date().toISOString(),
+      status: 'success'
+    };
+    sentLogs.push(logEntry);
+    saveSentLogs(sentLogs);
+
+    sendTelegramMessage(`🚀 <b>Manual Post Outreach Sent!</b>\n\n👤 <b>Target:</b> ${post.userProfile?.name} (${post.userProfile?.handle})\n🌐 <b>Platform:</b> ${post.platform.toUpperCase()}\n💬 <b>Text:</b> "${sentMessage}"\n🔗 <a href="${post.postUrl}">View Post</a>`);
+
+    res.json({ success: true, action: xActionConfig, message: sentMessage });
+  } catch (err) {
+    console.error('Send Single Post Error:', err);
+    res.status(500).json({ error: 'Failed to send outreach: ' + err.message });
+  }
+});
+
 app.post('/api/send-dms', async (req, res) => {
   const { posts, xAction } = req.body;
   if (!Array.isArray(posts) || posts.length === 0) return res.status(400).json({ error: 'Posts array required' });
