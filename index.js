@@ -746,20 +746,12 @@ app.put('/api/profiles/active', (req, res) => {
 // --- Data Export & Import APIs ---
 app.get('/api/debug-scrape', async (req, res) => {
   const cfg = getConfig();
-  const tokens = getTokensData();
-  const activeTwitter = tokens.tokens.find(t => t.id === tokens.activeTwitterTokenId);
-
-  const envs = { PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', TWITTER_AUTH_TOKEN: activeTwitter?.value || '' };
-  if (activeTwitter?.ct0) envs.TWITTER_CT0 = activeTwitter.ct0;
-
-  const twRes1 = await runCli('twitter', ['search', 'hiring video editor', '--type', 'latest', '--json'], envs);
-  const twRes2 = await runCli('python3', ['-m', 'twitter_cli.cli', 'search', 'hiring video editor', '--type', 'latest', '--json'], envs);
-  const pathCheck = await runCli('which', ['twitter', 'python3']);
-
+  const keyword = cfg.keywords[0] || 'hiring video editor';
+  const redditPosts = await scrapeRedditNative(keyword);
   res.json({
-    pathCheck,
-    twRes1: { error: twRes1.error?.message, stdoutLen: twRes1.stdout.length, stderr: twRes1.stderr },
-    twRes2: { error: twRes2.error?.message, stdoutLen: twRes2.stdout.length, stderr: twRes2.stderr }
+    keyword,
+    redditNativeCount: redditPosts.length,
+    redditSample: redditPosts.slice(0, 3)
   });
 });
 
