@@ -441,32 +441,36 @@ const runBackgroundSearch = async () => {
       console.log(`[24/7 Engine] Found ${newCount} new leads.`);
     }
 
-    // Auto Outreach Execution
+    // Auto Outreach Execution (Processes both newly discovered and existing unsent leads)
     if (cfg.autoOutreachEnabled) {
-      for (const post of newlyDiscovered) {
-        if (sentPostIds.has(post.id)) continue;
-        try {
-          console.log(`[24/7 Engine] Auto-Outreaching to ${post.userProfile.handle} (${post.platform})...`);
-          const res = await executeActionForPost(post, cfg.xActionConfig);
-          const logEntry = {
-            id: Date.now().toString() + '_' + Math.random().toString(36).substring(2, 6),
-            postId: post.id,
-            platform: post.platform,
-            userProfile: post.userProfile,
-            action: res.action,
-            message: res.message,
-            timestamp: new Date().toISOString(),
-            status: 'success'
-          };
-          sentLogs.push(logEntry);
-          sentPostIds.add(post.id);
-          saveSentLogs(sentLogs);
-          console.log(`[24/7 Engine] Successfully sent auto-outreach to ${post.userProfile.handle}`);
-          
-          // Anti-spam delay: wait 30s before next auto-send
-          await new Promise(r => setTimeout(r, 30000));
-        } catch (err) {
-          console.error(`[24/7 Engine] Auto-Outreach failed for ${post.userProfile?.handle}:`, err.message);
+      const unsentLeads = discovered.filter(p => !sentPostIds.has(p.id));
+      if (unsentLeads.length > 0) {
+        console.log(`[24/7 Engine] Found ${unsentLeads.length} unsent leads. Starting auto-outreach...`);
+        for (const post of unsentLeads.slice(0, 10)) {
+          if (sentPostIds.has(post.id)) continue;
+          try {
+            console.log(`[24/7 Engine] Auto-Outreaching to ${post.userProfile.handle} (${post.platform})...`);
+            const res = await executeActionForPost(post, cfg.xActionConfig);
+            const logEntry = {
+              id: Date.now().toString() + '_' + Math.random().toString(36).substring(2, 6),
+              postId: post.id,
+              platform: post.platform,
+              userProfile: post.userProfile,
+              action: res.action,
+              message: res.message,
+              timestamp: new Date().toISOString(),
+              status: 'success'
+            };
+            sentLogs.push(logEntry);
+            sentPostIds.add(post.id);
+            saveSentLogs(sentLogs);
+            console.log(`[24/7 Engine] Successfully sent auto-outreach to ${post.userProfile.handle}`);
+            
+            // Anti-spam delay: wait 30s before next auto-send
+            await new Promise(r => setTimeout(r, 30000));
+          } catch (err) {
+            console.error(`[24/7 Engine] Auto-Outreach failed for ${post.userProfile?.handle}:`, err.message);
+          }
         }
       }
     }
