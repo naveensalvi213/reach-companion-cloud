@@ -793,6 +793,15 @@ app.get('/api/debug-twitter', async (req, res) => {
   });
 });
 
+app.get('/api/debug-dir', (req, res) => {
+  const pyPkgPath = path.join(__dirname, 'python_packages');
+  if (!fs.existsSync(pyPkgPath)) {
+    return res.json({ error: 'python_packages does not exist' });
+  }
+  const files = fs.readdirSync(pyPkgPath);
+  res.json({ files });
+});
+
 app.get('/api/export-data', (req, res) => {
   const exportBundle = {
     version: '2.0',
