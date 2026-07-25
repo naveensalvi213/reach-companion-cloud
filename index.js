@@ -239,8 +239,23 @@ const scrapeTwitterCli = async (keywords, hours, tokenValue, ct0Value, excludeKe
     if (ct0Value) envs.TWITTER_CT0 = ct0Value;
 
     try {
-      const { stdout, error } = await runCli(TWITTER_PATH, args, envs);
-      if (error || !stdout) continue;
+      let stdout = '';
+      let { stdout: out1, error: err1 } = await runCli(TWITTER_PATH, args, envs);
+      stdout = out1;
+
+      // Fallback 1: Run via python3 module
+      if (!stdout || err1) {
+        let { stdout: out2 } = await runCli('python3', ['-m', 'twitter_cli.cli', ...args], envs);
+        stdout = out2;
+      }
+      // Fallback 2: Check ~/.local/bin/twitter
+      if (!stdout) {
+        const altPath = path.join(home, '.local', 'bin', 'twitter');
+        let { stdout: out3 } = await runCli(altPath, args, envs);
+        stdout = out3;
+      }
+
+      if (!stdout) continue;
       let parsed = JSON.parse(stdout);
       let tweets = Array.isArray(parsed) ? parsed : (parsed?.data || []);
 
@@ -285,8 +300,23 @@ const scrapeRedditCli = async (keywords, hours, tokenValue) => {
     if (tokenValue) envs.REDDIT_SESSION = tokenValue;
 
     try {
-      const { stdout, error } = await runCli(REDDIT_PATH, args, envs);
-      if (error || !stdout) continue;
+      let stdout = '';
+      let { stdout: out1, error: err1 } = await runCli(REDDIT_PATH, args, envs);
+      stdout = out1;
+
+      // Fallback 1: Run via python3 module
+      if (!stdout || err1) {
+        let { stdout: out2 } = await runCli('python3', ['-m', 'rdt.cli', ...args], envs);
+        stdout = out2;
+      }
+      // Fallback 2: Check ~/.local/bin/rdt
+      if (!stdout) {
+        const altPath = path.join(home, '.local', 'bin', 'rdt');
+        let { stdout: out3 } = await runCli(altPath, args, envs);
+        stdout = out3;
+      }
+
+      if (!stdout) continue;
       let listing = JSON.parse(stdout);
       let posts = Array.isArray(listing) ? listing : (listing?.items || listing?.data || []);
 
@@ -318,6 +348,8 @@ const scrapeRedditCli = async (keywords, hours, tokenValue) => {
 // --- Telegram Bot Notifications Helper ---
 const TELEGRAM_BOT_TOKEN = '8911468384:AAGT7-Jn5FCPUEUSghEBLT8Jth6_-i-80fw';
 let telegramChatId = null;
+let hasSentWelcomeMessage = false;
+let lastTelegramUpdateId = 0;
 
 const sendTelegramMessage = (text) => {
   if (!telegramChatId) return;
@@ -334,17 +366,24 @@ const sendTelegramMessage = (text) => {
 
 const pollTelegramChatId = () => {
   const https = require('https');
-  const req = https.get(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates`, (res) => {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${lastTelegramUpdateId + 1}`;
+  const req = https.get(url, (res) => {
     let data = '';
     res.on('data', chunk => data += chunk);
     res.on('end', () => {
       try {
         const json = JSON.parse(data);
         if (json.ok && json.result && json.result.length > 0) {
-          const lastMsg = json.result[json.result.length - 1];
-          const chatId = lastMsg?.message?.chat?.id || lastMsg?.channel_post?.chat?.id;
-          if (chatId && telegramChatId !== chatId) {
-            telegramChatId = chatId;
+          json.result.forEach(update => {
+            if (update.update_id > lastTelegramUpdateId) {
+              lastTelegramUpdateId = update.update_id;
+            }
+            const chatId = update?.message?.chat?.id || update?.channel_post?.chat?.id;
+            if (chatId) telegramChatId = chatId;
+          });
+
+          if (telegramChatId && !hasSentWelcomeMessage) {
+            hasSentWelcomeMessage = true;
             console.log(`[Telegram Bot] Connected to user Chat ID: ${telegramChatId}`);
             sendTelegramMessage('🟢 <b>ReachCompanion Telegram Bot Connected!</b>\n\nYou will receive live notifications here whenever an auto-comment is posted or a reply is received!');
           }
@@ -352,9 +391,7 @@ const pollTelegramChatId = () => {
       } catch (e) {}
     });
   });
-  req.on('error', (err) => {
-    // Ignore transient network errors so Node process never exits
-  });
+  req.on('error', (err) => {});
 };
 
 setInterval(pollTelegramChatId, 10000);
