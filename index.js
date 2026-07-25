@@ -21,7 +21,7 @@ const runInstaller = () => {
     } catch(e) {}
     try {
       console.log('[Cloud Engine] Running pip install target ./python_packages...');
-      execSync('python3 -m pip install --target ./python_packages --upgrade agent-reach twitter-cli-py rdt-cli curl-cffi x-client-transaction soupsieve', {
+      execSync('python3 -m pip install --target ./python_packages --upgrade curl-cffi soupsieve', {
         stdio: 'inherit',
         env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }
       });
