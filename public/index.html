@@ -238,6 +238,17 @@
       <button id="toggleAutoBtn" class="btn btn-red" onclick="toggleAutomation()">Pause Auto-Outreach</button>
     </div>
 
+    <div class="card" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3);">
+      <div class="card-title" style="color: var(--green);">📥 1-Click Import All PC Data</div>
+      <p style="font-size: 0.78rem; color: var(--text-sub); margin-bottom: 0.75rem;">
+        Click <strong>"Share / Export All Data"</strong> on your PC App, then upload the <code>.json</code> file below to instantly sync all cookies, templates & keywords to the cloud in 1 click!
+      </p>
+      <label class="btn btn-green" style="cursor: pointer;">
+        📂 Select Backup File to Upload & Sync
+        <input type="file" accept=".json" onchange="handleImportFile(event)" style="display: none;" />
+      </label>
+    </div>
+
     <div class="card">
       <div class="card-title">
         <span>📜 Live Sent History</span>
@@ -595,6 +606,28 @@
       const newState = !currentAutoState;
       await saveConfigApi({ autoOutreachEnabled: newState });
       loadData();
+    }
+
+    async function handleImportFile(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const jsonData = JSON.parse(text);
+        const res = await fetch('/api/import-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(jsonData)
+        });
+        if (res.ok) {
+          alert('⚡ All accounts, tokens, templates, and keywords imported successfully!');
+          loadData();
+        } else {
+          alert('Failed to import data.');
+        }
+      } catch (err) {
+        alert('Invalid JSON backup file.');
+      }
     }
 
     loadData();

@@ -516,6 +516,38 @@ app.put('/api/profiles/active', (req, res) => {
   res.json({ activeProfile });
 });
 
+// --- Data Export & Import APIs ---
+app.get('/api/export-data', (req, res) => {
+  const exportBundle = {
+    version: '2.0',
+    exportedAt: new Date().toISOString(),
+    activeProfile,
+    config: getConfig(),
+    tokens: getTokensData(),
+    templates: getTemplatesData(),
+    discoveredPosts: getDiscoveredPosts()
+  };
+  res.json(exportBundle);
+});
+
+app.post('/api/import-data', (req, res) => {
+  try {
+    const data = req.body;
+    if (!data) return res.status(400).json({ error: 'No data provided' });
+
+    if (data.config) saveConfig(data.config);
+    if (data.tokens) saveTokensData(data.tokens);
+    if (data.templates) saveTemplatesData(data.templates);
+    if (data.discoveredPosts) saveDiscoveredPosts(data.discoveredPosts);
+
+    startBackgroundWorker();
+    res.json({ success: true, message: 'Data imported successfully!' });
+  } catch (err) {
+    console.error('Import Error:', err);
+    res.status(500).json({ error: 'Failed to import data: ' + err.message });
+  }
+});
+
 app.get('/api/tokens', (req, res) => res.json(getTokensData()));
 app.post('/api/tokens', (req, res) => {
   const { label, value, type, ct0 } = req.body;
