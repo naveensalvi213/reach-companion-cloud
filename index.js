@@ -5,6 +5,38 @@ const path = require('os').platform() === 'win32' ? require('path').win32 : requ
 const os = require('os');
 const { execFile } = require('child_process');
 
+// --- Startup Python Dependencies Installer ---
+const runInstaller = () => {
+  const pyPkgPath = path.join(__dirname, 'python_packages');
+  const indicatorFile = path.join(pyPkgPath, '.installed_indicator');
+  
+  if (!fs.existsSync(indicatorFile)) {
+    console.log('[Cloud Engine] Initializing Python dependencies installation...');
+    if (!fs.existsSync(pyPkgPath)) {
+      fs.mkdirSync(pyPkgPath, { recursive: true });
+    }
+    const { execSync } = require('child_process');
+    try {
+      execSync('python3 -m ensurepip --default-pip', { stdio: 'inherit' });
+    } catch(e) {}
+    try {
+      console.log('[Cloud Engine] Running pip install target ./python_packages...');
+      execSync('python3 -m pip install --target ./python_packages --upgrade agent-reach twitter-cli-py rdt-cli curl-cffi x-client-transaction soupsieve', {
+        stdio: 'inherit',
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }
+      });
+      fs.writeFileSync(indicatorFile, 'installed');
+      console.log('[Cloud Engine] Python dependencies installed successfully!');
+    } catch (err) {
+      console.error('[Cloud Engine] Failed to install Python dependencies:', err.message);
+    }
+  } else {
+    console.log('[Cloud Engine] Python dependencies are already cached and loaded.');
+  }
+};
+
+runInstaller();
+
 const app = express();
 const PORT = process.env.PORT || 10000;
 
