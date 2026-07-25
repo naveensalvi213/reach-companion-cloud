@@ -762,6 +762,37 @@ app.get('/api/debug-scrape', async (req, res) => {
   });
 });
 
+app.get('/api/debug-twitter', async (req, res) => {
+  const data = getTokensData();
+  const activeTwitter = data.tokens.find(t => t.id === data.activeTwitterTokenId);
+  const args = ['search', 'video editor', '--type', 'latest', '--json'];
+  const envs = { 
+    PYTHONIOENCODING: 'utf-8', 
+    PYTHONUTF8: '1', 
+    TWITTER_AUTH_TOKEN: activeTwitter?.value || ''
+  };
+  if (activeTwitter?.ct0) envs.TWITTER_CT0 = activeTwitter.ct0;
+
+  const run1 = await runCli('python3', ['-m', 'twitter_cli.cli', ...args], envs);
+  const run2 = await runCli('twitter', args, envs);
+
+  res.json({
+    activeTwitterId: data.activeTwitterTokenId,
+    tokenValueLength: activeTwitter?.value?.length || 0,
+    ct0Length: activeTwitter?.ct0?.length || 0,
+    pythonRun: {
+      stdout: run1.stdout.substring(0, 1000),
+      stderr: run1.stderr.substring(0, 1000),
+      error: run1.error?.message
+    },
+    cliRun: {
+      stdout: run2.stdout.substring(0, 1000),
+      stderr: run2.stderr.substring(0, 1000),
+      error: run2.error?.message
+    }
+  });
+});
+
 app.get('/api/export-data', (req, res) => {
   const exportBundle = {
     version: '2.0',
