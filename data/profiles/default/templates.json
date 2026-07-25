@@ -1,0 +1,35 @@
+{
+  "templates": [
+    {
+      "id": "1783853656353",
+      "text": "hey {username} i can edit for you.\nwanna see my portfolio"
+    },
+    {
+      "id": "1783853754826",
+      "text": "hello,check my work\nhttps://al3x-ediits.lovable.app/"
+    },
+    {
+      "id": "1784281002292",
+      "text": "hello,check my work\nhttps://neo-gfx.lovable.app/",
+      "keyword": "thumbnail"
+    },
+    {
+      "id": "1784281033179",
+      "text": "my work\nhttps://neo-gfx.lovable.app/",
+      "keyword": "thumbnail"
+    },
+    {
+      "id": "1784281064789",
+      "text": "here is my portfolio\nhttps://neo-gfx.lovable.app/",
+      "keyword": "thumbnail"
+    },
+    {
+      "id": "1784281109128",
+      "text": "here my  work\nhttps://al3x-ediits.lovable.app/"
+    },
+    {
+      "id": "1784281122899",
+      "text": "my recent edits\nhttps://al3x-ediits.lovable.app/"
+    }
+  ]
+}

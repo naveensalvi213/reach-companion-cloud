@@ -1,0 +1,16 @@
+{
+  "keywords": [
+    "hiring video editor",
+    "need video editor",
+    "looking for editor",
+    "need thumbnail",
+    "looking for thumbnail",
+    "hiring thumbnail"
+  ],
+  "excludes": [
+    "?",
+    "@",
+    "for hire"
+  ],
+  "intervalMinutes": 5
+}

@@ -65,13 +65,24 @@ const migrateExistingToDefault = () => {
   }
   const files = ['config.json', 'tokens.json', 'templates.json', 'discovered_posts.json'];
   const possibleSrcDirs = [
+    path.join(__dirname, 'data', 'profiles', 'default'),
     path.join(__dirname, '..', 'backend'),
-    'C:\\Users\\navee\\Downloads\\x & reddit\\backend',
     __dirname
   ];
 
   files.forEach(f => {
     const dest = path.join(defaultDir, f);
+    const srcInBundle = path.join(__dirname, 'data', 'profiles', 'default', f);
+    
+    // Always overwrite if source bundle file exists to guarantee persistence on Render deploys
+    if (fs.existsSync(srcInBundle)) {
+      try {
+        fs.copyFileSync(srcInBundle, dest);
+        console.log(`Loaded bundled ${f} into profiles/default/`);
+        return;
+      } catch (err) {}
+    }
+
     if (!fs.existsSync(dest)) {
       for (const srcDir of possibleSrcDirs) {
         const src = path.join(srcDir, f);
