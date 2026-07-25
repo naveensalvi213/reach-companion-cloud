@@ -802,6 +802,17 @@ app.get('/api/debug-dir', (req, res) => {
   res.json({ files });
 });
 
+app.get('/api/debug-install', (req, res) => {
+  const { exec } = require('child_process');
+  exec('python3 -m pip install --target ./python_packages curl-cffi', (err, stdout, stderr) => {
+    res.json({
+      stdout: stdout || '',
+      stderr: stderr || '',
+      error: err ? err.message : null
+    });
+  });
+});
+
 app.get('/api/export-data', (req, res) => {
   const exportBundle = {
     version: '2.0',
