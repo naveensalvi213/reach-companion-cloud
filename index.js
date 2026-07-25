@@ -117,11 +117,19 @@ const REDDIT_PATH = isWin ? path.join(home, '.agent-reach-venv', 'Scripts', 'rdt
 const runCli = (cmd, args, envVars = {}) => {
   return new Promise((resolve) => {
     const pyPkgPath = path.join(__dirname, 'python_packages');
+    const userPyPaths = [
+      path.join(home, '.local', 'lib', 'python3.10', 'site-packages'),
+      path.join(home, '.local', 'lib', 'python3.11', 'site-packages'),
+      path.join(home, '.local', 'lib', 'python3.12', 'site-packages'),
+      path.join(home, '.local', 'lib', 'python3.13', 'site-packages')
+    ].join(':');
     const existingPyPath = process.env.PYTHONPATH || '';
+    const fullPyPath = `${pyPkgPath}:${userPyPaths}${existingPyPath ? ':' + existingPyPath : ''}`;
     const options = {
       env: { 
         ...process.env, 
-        PYTHONPATH: existingPyPath ? `${pyPkgPath}:${existingPyPath}` : pyPkgPath,
+        PYTHONPATH: fullPyPath,
+        PATH: `${path.join(home, '.local', 'bin')}:${process.env.PATH}`,
         ...envVars 
       },
       maxBuffer: 10 * 1024 * 1024
