@@ -667,6 +667,37 @@ app.put('/api/profiles/active', (req, res) => {
 });
 
 // --- Data Export & Import APIs ---
+app.get('/api/debug-scrape', async (req, res) => {
+  const cfg = getConfig();
+  const tokens = getTokensData();
+  const activeTwitter = tokens.tokens.find(t => t.id === tokens.activeTwitterTokenId);
+  const activeReddit = tokens.tokens.find(t => t.id === tokens.activeRedditTokenId);
+
+  const diag = {
+    activeTwitter: activeTwitter ? { label: activeTwitter.label, hasValue: !!activeTwitter.value, hasCt0: !!activeTwitter.ct0 } : null,
+    activeReddit: activeReddit ? { label: activeReddit.label, hasValue: !!activeReddit.value } : null,
+    keywords: cfg.keywords
+  };
+
+  try {
+    const redditResults = await scrapeRedditCli(cfg.keywords.slice(0, 1), 24, activeReddit?.value);
+    diag.redditCount = redditResults.length;
+    diag.redditSample = redditResults.slice(0, 2);
+  } catch(e) {
+    diag.redditError = e.message;
+  }
+
+  try {
+    const twitterResults = await scrapeTwitterCli(cfg.keywords.slice(0, 1), 24, activeTwitter?.value, activeTwitter?.ct0, cfg.excludes);
+    diag.twitterCount = twitterResults.length;
+    diag.twitterSample = twitterResults.slice(0, 2);
+  } catch(e) {
+    diag.twitterError = e.message;
+  }
+
+  res.json(diag);
+});
+
 app.get('/api/export-data', (req, res) => {
   const exportBundle = {
     version: '2.0',
