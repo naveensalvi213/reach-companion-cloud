@@ -1017,11 +1017,13 @@ app.post('/api/send-single-post', async (req, res) => {
       if (!activeReddit || !activeReddit.value) throw new Error('No active Reddit token');
       const pyCode = `
 import sys, json
+from rdt_cli.auth import Credential
 from rdt_cli.client import RedditClient
-client = RedditClient(session_cookie="${activeReddit.value}")
+cred = Credential(cookies={"reddit_session": "${activeReddit.value}"})
 try:
-    client.send_message("${post.userProfile?.handle?.replace('u/', '')}", ${JSON.stringify(sentMessage)})
-    print(json.dumps({"status": "sent"}))
+    with RedditClient(credential=cred) as client:
+        client.send_message("${post.userProfile?.handle?.replace('u/', '')}", ${JSON.stringify(sentMessage)})
+        print(json.dumps({"status": "sent"}))
 except Exception as e:
     print(json.dumps({"error": str(e)}))
 `;
