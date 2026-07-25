@@ -360,6 +360,49 @@ const pollTelegramChatId = () => {
 setInterval(pollTelegramChatId, 10000);
 pollTelegramChatId();
 
+const sendNativeTwitterComment = async (authToken, ct0Token, tweetId, message) => {
+  const https = require('https');
+  const querystring = require('querystring');
+  const postData = querystring.stringify({
+    status: message,
+    in_reply_to_status_id: tweetId,
+    auto_populate_reply_metadata: 'true'
+  });
+
+  const bearerToken = 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAn%2BFWskAAAGC%2FGMGeWch9P601W%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F';
+
+  return new Promise((resolve, reject) => {
+    const req = https.request('https://x.com/i/api/1.1/statuses/update.json', {
+      method: 'POST',
+      headers: {
+        'authorization': bearerToken,
+        'cookie': `auth_token=${authToken}; ct0=${ct0Token}`,
+        'x-csrf-token': ct0Token,
+        'content-type': 'application/x-www-form-urlencoded',
+        'content-length': Buffer.byteLength(postData),
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+      }
+    }, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try {
+            resolve(JSON.parse(data));
+          } catch(e) {
+            resolve({ status: 'ok' });
+          }
+        } else {
+          reject(new Error(`Twitter API HTTP ${res.statusCode}: ${data}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(postData);
+    req.end();
+  });
+};
+
 // --- Execution Dispatch Helper ---
 const executeActionForPost = async (post, xActionConfig = 'comment') => {
   const templatesData = getTemplatesData();
@@ -392,6 +435,15 @@ const executeActionForPost = async (post, xActionConfig = 'comment') => {
     const bareTweetId = post.id.replace('twitter_', '');
     const doDM = (xActionConfig === 'dm' || xActionConfig === 'both');
     const doComment = (xActionConfig === 'comment' || xActionConfig === 'both');
+
+    if (doComment && !doDM) {
+      try {
+        await sendNativeTwitterComment(activeTwitter.value, activeTwitter.ct0, bareTweetId, message);
+        return { status: 'sent', action: 'comment', message };
+      } catch (nativeErr) {
+        console.log('Native Twitter comment fallback to CLI script:', nativeErr.message);
+      }
+    }
 
     const pyCode = `
 import sys, json
