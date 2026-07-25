@@ -1,0 +1,2 @@
+[console_scripts]
+rdt = rdt_cli.cli:cli

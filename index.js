@@ -312,7 +312,7 @@ const scrapeRedditCli = async (keywords, hours, tokenValue) => {
 
       // Fallback 1: Run via python3 module
       if (!stdout || err1) {
-        let { stdout: out2 } = await runCli('python3', ['-m', 'rdt.cli', ...args], envs);
+        let { stdout: out2 } = await runCli('python3', ['-m', 'rdt_cli', ...args], envs);
         stdout = out2;
       }
       // Fallback 2: Check ~/.local/bin/rdt

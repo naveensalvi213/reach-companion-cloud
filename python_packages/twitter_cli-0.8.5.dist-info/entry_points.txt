@@ -1,0 +1,2 @@
+[console_scripts]
+twitter = twitter_cli.cli:cli
