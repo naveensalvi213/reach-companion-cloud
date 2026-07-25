@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReachCompanion 24/7 Bot Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0F172A;
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --border: rgba(255, 255, 255, 0.1);
+      --primary: #6366F1;
+      --text: #F8FAFC;
+      --text-sub: #94A3B8;
+      --green: #10B981;
+      --red: #EF4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 1rem;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 1rem;
+    }
+    h1 { font-size: 1.4rem; font-weight: 700; color: var(--primary); }
+    .badge {
+      background: rgba(16, 185, 129, 0.2);
+      color: var(--green);
+      border: 1px solid var(--green);
+      padding: 0.25rem 0.6rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      backdrop-filter: blur(10px);
+    }
+    .card-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+    .stat-box {
+      background: rgba(0,0,0,0.2);
+      border: 1px solid var(--border);
+      padding: 0.75rem;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .stat-num { font-size: 1.5rem; font-weight: 700; color: var(--primary); }
+    .stat-lbl { font-size: 0.75rem; color: var(--text-sub); }
+    .toggle-btn {
+      width: 100%;
+      padding: 0.75rem;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      margin-top: 0.5rem;
+    }
+    .btn-green { background: var(--green); color: white; }
+    .btn-red { background: var(--red); color: white; }
+    .log-item {
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border);
+      padding: 0.75rem;
+      border-radius: 8px;
+      margin-bottom: 0.5rem;
+      font-size: 0.85rem;
+    }
+    .log-header { display: flex; justify-content: space-between; margin-bottom: 0.25rem; font-weight: 600; }
+    .log-msg { color: var(--text-sub); margin-top: 0.25rem; font-style: italic; word-break: break-word; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🤖 Bot Control</h1>
+    <div className="badge" id="statusBadge">⚡ 24/7 Active</div>
+  </header>
+
+  <div class="card">
+    <div class="card-title">
+      <span>Auto-Outreach Automation</span>
+      <span id="autoStateLabel" style="color: var(--green);">ENABLED</span>
+    </div>
+    <div class="stat-grid">
+      <div class="stat-box">
+        <div class="stat-num" id="totalLeads">0</div>
+        <div class="stat-lbl">Leads Discovered</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-num" id="totalSent">0</div>
+        <div class="stat-lbl">Auto-DMs Sent</div>
+      </div>
+    </div>
+    <button id="toggleAutoBtn" class="toggle-btn btn-red" onclick="toggleAutomation()">Pause Auto-Outreach</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🔍 Active Search Keywords</div>
+    <div id="keywordsList" style="display: flex; flex-wrap: wrap; gap: 0.4rem; font-size: 0.85rem; color: var(--text-sub);">
+      Loading...
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">
+      <span>📜 Recent Sent DMs & Comments</span>
+      <button onclick="loadLogs()" style="background: none; border: none; color: var(--primary); font-size: 0.8rem; cursor: pointer;">🔄 Refresh</button>
+    </div>
+    <div id="logsContainer">
+      <p style="color: var(--text-sub); font-size: 0.85rem; text-align: center;">No DMs sent yet.</p>
+    </div>
+  </div>
+
+  <script>
+    let currentAutoState = true;
+
+    async function loadData() {
+      try {
+        const [configRes, inboxRes, logsRes] = await Promise.all([
+          fetch('/api/config').then(r => r.json()),
+          fetch('/api/inbox-posts').then(r => r.json()),
+          fetch('/api/sent-logs').then(r => r.json())
+        ]);
+
+        currentAutoState = configRes.autoOutreachEnabled !== false;
+        document.getElementById('autoStateLabel').innerText = currentAutoState ? 'ENABLED' : 'PAUSED';
+        document.getElementById('autoStateLabel').style.color = currentAutoState ? 'var(--green)' : 'var(--red)';
+        document.getElementById('toggleAutoBtn').innerText = currentAutoState ? 'Pause Auto-Outreach' : 'Enable Auto-Outreach';
+        document.getElementById('toggleAutoBtn').className = currentAutoState ? 'toggle-btn btn-red' : 'toggle-btn btn-green';
+
+        document.getElementById('totalLeads').innerText = inboxRes.posts ? inboxRes.posts.length : 0;
+        document.getElementById('totalSent').innerText = logsRes.logs ? logsRes.logs.length : 0;
+
+        const kwHtml = configRes.keywords ? configRes.keywords.map(k => `<span style="background: rgba(99, 102, 241, 0.2); border: 1px solid var(--primary); color: #a5b4fc; padding: 0.2rem 0.5rem; border-radius: 4px;">${k}</span>`).join('') : '';
+        document.getElementById('keywordsList').innerHTML = kwHtml || 'None';
+
+        renderLogs(logsRes.logs || []);
+      } catch (err) {
+        console.error('Failed to fetch stats', err);
+      }
+    }
+
+    function renderLogs(logs) {
+      const container = document.getElementById('logsContainer');
+      if (logs.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-sub); font-size: 0.85rem; text-align: center;">No auto-sent DMs recorded yet.</p>';
+        return;
+      }
+      container.innerHTML = logs.slice(-15).reverse().map(log => `
+        <div class="log-item">
+          <div class="log-header">
+            <span style="color: var(--primary);">${log.userProfile ? log.userProfile.handle : 'User'}</span>
+            <span style="color: var(--green); font-size: 0.75rem;">${log.platform.toUpperCase()} (${log.action})</span>
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-sub);">${new Date(log.timestamp).toLocaleString()}</div>
+          <div class="log-msg">"${log.message}"</div>
+        </div>
+      `).join('');
+    }
+
+    async function toggleAutomation() {
+      const newState = !currentAutoState;
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoOutreachEnabled: newState })
+      });
+      loadData();
+    }
+
+    async function loadLogs() {
+      const logsRes = await fetch('/api/sent-logs').then(r => r.json());
+      renderLogs(logsRes.logs || []);
+    }
+
+    loadData();
+    setInterval(loadData, 10000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "reach-companion-cloud",
+  "version": "2.0.0",
+  "description": "24/7 Automated Outreach Engine for X and Reddit",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  }
+}
