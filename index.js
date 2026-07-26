@@ -232,13 +232,56 @@ const saveSentLogs = (logs) => {
   fs.writeFileSync(getSentLogsFile(), JSON.stringify(logs, null, 2));
 };
 
+const getNotifiedRepliesFile = () => getProfilePath('notified_replies.json');
+
+const getNotifiedReplies = () => {
+  const file = getNotifiedRepliesFile();
+  if (!fs.existsSync(file)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch (e) {
+    return [];
+  }
+};
+
+const saveNotifiedReplies = (ids) => {
+  fs.writeFileSync(getNotifiedRepliesFile(), JSON.stringify(ids, null, 2));
+};
+
+let cachedTwitterScreenName = null;
+const getTwitterScreenName = async (tokenValue, ct0Value) => {
+  if (cachedTwitterScreenName) return cachedTwitterScreenName;
+  const pyCode = `
+import sys, json
+from twitter_cli.client import TwitterClient
+client = TwitterClient(auth_token="${tokenValue}", ct0="${ct0Value || ''}")
+try:
+    me = client.fetch_me()
+    print(json.dumps({"screen_name": me.screen_name}))
+except Exception as e:
+    print(json.dumps({"error": str(e)}))
+`;
+  const pythonPath = isWin ? path.join(home, '.agent-reach-venv', 'Scripts', 'python.exe') : 'python3';
+  try {
+    const { stdout } = await runCli(pythonPath, ['-c', pyCode], { PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' });
+    const resp = JSON.parse(stdout || '{}');
+    if (resp.screen_name) {
+      cachedTwitterScreenName = resp.screen_name;
+      return cachedTwitterScreenName;
+    }
+  } catch (err) {
+    console.error('Failed to resolve Twitter screen name:', err.message);
+  }
+  return null;
+};
+
 const getConfig = () => {
   const file = getConfigFile();
   if (!fs.existsSync(file)) {
     return { 
       keywords: ['hiring video editor', 'need video editor', 'looking for editor', 'need thumbnail', 'looking for thumbnail', 'hiring thumbnail'], 
       excludes: ['?'], 
-      intervalMinutes: 5,
+      intervalMinutes: 60,
       autoOutreachEnabled: true,
       xActionConfig: 'both'
     };
@@ -252,7 +295,7 @@ const getConfig = () => {
     return { 
       keywords: ['hiring video editor', 'need video editor', 'looking for editor', 'need thumbnail', 'looking for thumbnail', 'hiring thumbnail'], 
       excludes: ['?'], 
-      intervalMinutes: 5,
+      intervalMinutes: 60,
       autoOutreachEnabled: true,
       xActionConfig: 'comment'
     };
@@ -274,7 +317,7 @@ const parseKeywords = (queryStr) => {
   };
 };
 
-const scrapeTwitterCli = async (keywords, hours, tokenValue, ct0Value, excludeKeywords = []) => {
+const scrapeTwitterCli = async (keywords, hours, tokenValue, ct0Value, excludeKeywords = [], includeReplies = false) => {
   if (!keywords || keywords.length === 0 || !tokenValue) return [];
   const allTweetsMap = new Map();
   const cutoffTime = Date.now() - (hours * 60 * 60 * 1000);
@@ -306,6 +349,9 @@ const scrapeTwitterCli = async (keywords, hours, tokenValue, ct0Value, excludeKe
       let tweets = Array.isArray(parsed) ? parsed : (parsed?.data || []);
 
       tweets.forEach(tweet => {
+        // Skip reply tweets to avoid commenting on conversation threads unless includeReplies is true
+        if (!includeReplies && (tweet.inReplyToStatusId || tweet.inReplyToScreenName)) return;
+
         const text = tweet.text || '';
         const lowerText = text.toLowerCase();
         if (excludeKeywords.some(ex => lowerText.includes(ex))) return;
@@ -551,6 +597,15 @@ const sendNativeTwitterComment = async (authToken, ct0Token, tweetId, message) =
 
 // --- Execution Dispatch Helper ---
 const executeActionForPost = async (post, xActionConfig = 'comment') => {
+  const handleLower = post.userProfile?.handle?.toLowerCase();
+  if (handleLower) {
+    const sentLogs = getSentLogs();
+    const alreadySent = sentLogs.some(log => log.userProfile?.handle?.toLowerCase() === handleLower && log.status === 'success');
+    if (alreadySent) {
+      throw new Error(`Already outreached to this user (${post.userProfile?.handle})`);
+    }
+  }
+
   const templatesData = getTemplatesData();
   if (templatesData.templates.length === 0) {
     throw new Error('No DM templates configured.');
@@ -680,12 +735,14 @@ const runBackgroundSearch = async () => {
     const existingIds = new Set(discovered.map(p => p.id));
     const sentLogs = getSentLogs();
     const sentPostIds = new Set(sentLogs.map(l => l.postId));
+    const sentHandles = new Set(sentLogs.map(l => l.userProfile?.handle?.toLowerCase()).filter(Boolean));
     
     let newCount = 0;
     const newlyDiscovered = [];
 
     allResults.forEach(post => {
-      if (!existingIds.has(post.id)) {
+      const handleLower = post.userProfile?.handle?.toLowerCase();
+      if (!existingIds.has(post.id) && !sentHandles.has(handleLower)) {
         const fullPost = { ...post, isRead: false, notified: false };
         discovered.push(fullPost);
         newlyDiscovered.push(fullPost);
@@ -701,7 +758,7 @@ const runBackgroundSearch = async () => {
 
     // Auto Outreach Execution (Processes both newly discovered and existing unsent leads)
     if (cfg.autoOutreachEnabled) {
-      const unsentLeads = discovered.filter(p => !sentPostIds.has(p.id));
+      const unsentLeads = discovered.filter(p => !sentPostIds.has(p.id) && !sentHandles.has(p.userProfile?.handle?.toLowerCase()));
       if (unsentLeads.length > 0) {
         console.log(`[24/7 Engine] Found ${unsentLeads.length} unsent leads. Starting auto-outreach...`);
         for (const post of unsentLeads.slice(0, 10)) {
@@ -733,6 +790,40 @@ const runBackgroundSearch = async () => {
             console.error(`[24/7 Engine] Auto-Outreach failed for ${post.userProfile?.handle}:`, err.message);
           }
         }
+      }
+    }
+
+    // --- Live Twitter Reply Checker ---
+    if (activeTwitter?.value) {
+      try {
+        const screenName = await getTwitterScreenName(activeTwitter.value, activeTwitter.ct0);
+        if (screenName) {
+          console.log(`[24/7 Engine] Checking replies for X user: @${screenName}...`);
+          const replies = await scrapeTwitterCli([`to:${screenName}`], 24, activeTwitter.value, activeTwitter.ct0, [], true);
+          const notifiedReplyIds = getNotifiedReplies();
+          const notifiedReplySet = new Set(notifiedReplyIds);
+          let newRepliesCount = 0;
+          
+          for (const reply of replies) {
+            const authorHandle = reply.userProfile?.handle?.replace('@', '')?.toLowerCase();
+            if (authorHandle === screenName.toLowerCase()) continue;
+            
+            const bareReplyId = reply.id.replace('twitter_', '');
+            if (!notifiedReplySet.has(bareReplyId)) {
+              console.log(`[Telegram Bot] Sending notification for new X reply from @${reply.userProfile?.handle}`);
+              sendTelegramMessage(`📩 <b>New X (Twitter) Reply Received!</b>\n\n👤 <b>From:</b> ${reply.userProfile?.name} (${reply.userProfile?.handle})\n💬 <b>Reply:</b> "${reply.text}"\n🔗 <a href="${reply.postUrl}">View Reply/Thread</a>`);
+              notifiedReplyIds.push(bareReplyId);
+              notifiedReplySet.add(bareReplyId);
+              newRepliesCount++;
+            }
+          }
+          
+          if (newRepliesCount > 0) {
+            saveNotifiedReplies(notifiedReplyIds);
+          }
+        }
+      } catch (replyErr) {
+        console.error("[24/7 Engine] Reply checker error:", replyErr.message);
       }
     }
   } catch (err) {
@@ -928,7 +1019,7 @@ app.post('/api/config', (req, res) => {
   const cfg = getConfig();
   if (keywords) cfg.keywords = keywords;
   if (excludes) cfg.excludes = excludes;
-  if (intervalMinutes) cfg.intervalMinutes = parseInt(intervalMinutes) || 5;
+  if (intervalMinutes) cfg.intervalMinutes = parseInt(intervalMinutes) || 60;
   if (autoOutreachEnabled !== undefined) cfg.autoOutreachEnabled = autoOutreachEnabled;
   if (xActionConfig) cfg.xActionConfig = xActionConfig;
   saveConfig(cfg);

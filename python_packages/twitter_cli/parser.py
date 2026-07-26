@@ -249,6 +249,9 @@ def parse_tweet_result(result, depth=0):
     # Prefer note_tweet full text for long tweets ("Show More")
     note_text = _deep_get(actual_data, "note_tweet", "note_tweet_results", "result", "text")
 
+    in_reply_to_status_id = actual_legacy.get("in_reply_to_status_id_str")
+    in_reply_to_screen_name = actual_legacy.get("in_reply_to_screen_name")
+
     return Tweet(
         id=actual_data.get("rest_id", ""),
         text=note_text or actual_legacy.get("full_text", ""),
@@ -268,6 +271,8 @@ def parse_tweet_result(result, depth=0):
         retweeted_by=retweeted_by,
         quoted_tweet=quoted_tweet,
         lang=actual_legacy.get("lang", ""),
+        in_reply_to_status_id=in_reply_to_status_id,
+        in_reply_to_screen_name=in_reply_to_screen_name,
         **_parse_article(actual_data),
     )
 

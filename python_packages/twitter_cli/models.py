@@ -52,6 +52,8 @@ class Tweet:
     score: Optional[float] = None
     article_title: Optional[str] = None
     article_text: Optional[str] = None
+    in_reply_to_status_id: Optional[str] = None
+    in_reply_to_screen_name: Optional[str] = None
 
 
 @dataclass

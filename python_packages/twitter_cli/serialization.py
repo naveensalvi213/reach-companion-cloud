@@ -46,6 +46,8 @@ def tweet_to_dict(tweet: Tweet) -> Dict[str, Any]:
         "retweetedBy": tweet.retweeted_by,
         "lang": tweet.lang,
         "score": tweet.score,
+        "inReplyToStatusId": tweet.in_reply_to_status_id,
+        "inReplyToScreenName": tweet.in_reply_to_screen_name,
     }
     if tweet.article_title is not None:
         data["articleTitle"] = tweet.article_title
