@@ -281,6 +281,7 @@ const getConfig = () => {
     return { 
       keywords: ['hiring video editor', 'need video editor', 'looking for editor', 'need thumbnail', 'looking for thumbnail', 'hiring thumbnail'], 
       excludes: ['?'], 
+      specialKeywords: [],
       intervalMinutes: 60,
       autoOutreachEnabled: true,
       xActionConfig: 'both'
@@ -289,12 +290,14 @@ const getConfig = () => {
   try {
     const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
     if (cfg.autoOutreachEnabled === undefined) cfg.autoOutreachEnabled = true;
+    if (!cfg.specialKeywords) cfg.specialKeywords = [];
     cfg.xActionConfig = 'comment';
     return cfg;
   } catch (e) {
     return { 
       keywords: ['hiring video editor', 'need video editor', 'looking for editor', 'need thumbnail', 'looking for thumbnail', 'hiring thumbnail'], 
       excludes: ['?'], 
+      specialKeywords: [],
       intervalMinutes: 60,
       autoOutreachEnabled: true,
       xActionConfig: 'comment'
@@ -611,8 +614,20 @@ const executeActionForPost = async (post, xActionConfig = 'comment') => {
     throw new Error('No DM templates configured.');
   }
 
-  // Switch templates completely randomly across all templates
-  const templateObj = templatesData.templates[Math.floor(Math.random() * templatesData.templates.length)];
+  // Match templates by trigger keyword (case-insensitive substring match)
+  const postTextLower = (post.text || '').toLowerCase();
+  const matchingTemplates = templatesData.templates.filter(t => 
+    t.keyword && t.keyword.trim() !== '' && postTextLower.includes(t.keyword.trim().toLowerCase())
+  );
+
+  let templateObj;
+  if (matchingTemplates.length > 0) {
+    templateObj = matchingTemplates[Math.floor(Math.random() * matchingTemplates.length)];
+  } else {
+    const fallbacks = templatesData.templates.filter(t => !t.keyword || t.keyword.trim() === '');
+    const pool = fallbacks.length > 0 ? fallbacks : templatesData.templates;
+    templateObj = pool[Math.floor(Math.random() * pool.length)];
+  }
 
   const message = templateObj.text
     .replace(/{username}/g, post.userProfile?.name || '')
@@ -719,6 +734,13 @@ const runBackgroundSearch = async () => {
       allResults = allResults.filter(item => {
         const lowerText = item.text.toLowerCase();
         return !cfg.excludes.some(ex => lowerText.includes(ex));
+      });
+    }
+
+    if (cfg.specialKeywords && cfg.specialKeywords.length > 0) {
+      allResults = allResults.filter(item => {
+        const lowerText = (item.text || '').toLowerCase();
+        return cfg.specialKeywords.some(k => k && k.trim() !== '' && lowerText.includes(k.trim().toLowerCase()));
       });
     }
 
@@ -1015,10 +1037,11 @@ app.delete('/api/templates/:id', (req, res) => {
 
 app.get('/api/config', (req, res) => res.json(getConfig()));
 app.post('/api/config', (req, res) => {
-  const { keywords, excludes, intervalMinutes, autoOutreachEnabled, xActionConfig } = req.body;
+  const { keywords, excludes, specialKeywords, intervalMinutes, autoOutreachEnabled, xActionConfig } = req.body;
   const cfg = getConfig();
   if (keywords) cfg.keywords = keywords;
   if (excludes) cfg.excludes = excludes;
+  if (specialKeywords) cfg.specialKeywords = specialKeywords;
   if (intervalMinutes) cfg.intervalMinutes = parseInt(intervalMinutes) || 60;
   if (autoOutreachEnabled !== undefined) cfg.autoOutreachEnabled = autoOutreachEnabled;
   if (xActionConfig) cfg.xActionConfig = xActionConfig;
@@ -1077,6 +1100,14 @@ app.post('/api/manual-search', async (req, res) => {
       });
     }
 
+    const cfg = getConfig();
+    if (cfg.specialKeywords && cfg.specialKeywords.length > 0) {
+      allResults = allResults.filter(item => {
+        const lowerText = (item.text || '').toLowerCase();
+        return cfg.specialKeywords.some(k => k && k.trim() !== '' && lowerText.includes(k.trim().toLowerCase()));
+      });
+    }
+
     res.json({ posts: allResults });
   } catch (err) {
     console.error('Manual Search Error:', err);
@@ -1093,7 +1124,21 @@ app.post('/api/send-single-post', async (req, res) => {
     if (!sentMessage || !sentMessage.trim()) {
       const templatesData = getTemplatesData();
       if (templatesData.templates.length === 0) throw new Error('No DM templates available.');
-      const templateObj = templatesData.templates[Math.floor(Math.random() * templatesData.templates.length)];
+      
+      const postTextLower = (post.text || '').toLowerCase();
+      const matchingTemplates = templatesData.templates.filter(t => 
+        t.keyword && t.keyword.trim() !== '' && postTextLower.includes(t.keyword.trim().toLowerCase())
+      );
+      
+      let templateObj;
+      if (matchingTemplates.length > 0) {
+        templateObj = matchingTemplates[Math.floor(Math.random() * matchingTemplates.length)];
+      } else {
+        const fallbacks = templatesData.templates.filter(t => !t.keyword || t.keyword.trim() === '');
+        const pool = fallbacks.length > 0 ? fallbacks : templatesData.templates;
+        templateObj = pool[Math.floor(Math.random() * pool.length)];
+      }
+      
       sentMessage = templateObj.text;
     }
 

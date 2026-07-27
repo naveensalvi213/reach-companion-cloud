@@ -12,5 +12,6 @@
     "@",
     "for hire"
   ],
-  "intervalMinutes": 60
+  "intervalMinutes": 60,
+  "specialKeywords": []
 }

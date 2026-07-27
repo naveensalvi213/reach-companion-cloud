@@ -170,6 +170,11 @@
       border-color: var(--red);
       color: #FCA5A5;
     }
+    .tag-sp {
+      background: rgba(245, 158, 11, 0.18);
+      border-color: #F59E0B;
+      color: #FDE68A;
+    }
 
     .log-item {
       background: rgba(0,0,0,0.3);
@@ -359,6 +364,18 @@
       </div>
       <div class="tag-container" id="excludesTagContainer"></div>
     </div>
+
+    <div class="card">
+      <div class="card-title">Special Keywords (Must be present in post)</div>
+      <p style="font-size: 0.78rem; color: var(--text-sub); margin-bottom: 0.75rem;">
+        If defined, a post must contain at least one of these keywords (case-insensitive substring match) to be processed.
+      </p>
+      <div class="form-group" style="display: flex; gap: 0.4rem;">
+        <input type="text" id="newSpecialKeywordInput" placeholder="Add special keyword (e.g. edit)..." />
+        <button class="btn btn-primary btn-sm" onclick="addSpecialKeyword()">Add</button>
+      </div>
+      <div class="tag-container" id="specialKeywordsTagContainer"></div>
+    </div>
   </div>
 
   <!-- TAB 4: DM TEMPLATES -->
@@ -469,6 +486,11 @@
       exBox.innerHTML = (configData.excludes || []).map((e, i) => `
         <div class="tag tag-ex">${e} <span onclick="removeExclude(${i})" style="cursor:pointer;font-weight:bold;">×</span></div>
       `).join('') || '<span style="color:var(--text-sub);font-size:0.8rem;">No exclude keywords added.</span>';
+
+      const spBox = document.getElementById('specialKeywordsTagContainer');
+      spBox.innerHTML = (configData.specialKeywords || []).map((s, i) => `
+        <div class="tag tag-sp">${s} <span onclick="removeSpecialKeyword(${i})" style="cursor:pointer;font-weight:bold;">×</span></div>
+      `).join('') || '<span style="color:var(--text-sub);font-size:0.8rem;">No special keywords added.</span>';
     }
 
     async function addKeyword() {
@@ -502,6 +524,23 @@
       const eList = configData.excludes || [];
       eList.splice(idx, 1);
       await saveConfigApi({ excludes: eList });
+      loadData();
+    }
+
+    async function addSpecialKeyword() {
+      const val = document.getElementById('newSpecialKeywordInput').value.trim();
+      if (!val) return;
+      const sList = configData.specialKeywords || [];
+      sList.push(val);
+      await saveConfigApi({ specialKeywords: sList });
+      document.getElementById('newSpecialKeywordInput').value = '';
+      loadData();
+    }
+
+    async function removeSpecialKeyword(idx) {
+      const sList = configData.specialKeywords || [];
+      sList.splice(idx, 1);
+      await saveConfigApi({ specialKeywords: sList });
       loadData();
     }
 
