@@ -248,6 +248,22 @@ const saveNotifiedReplies = (ids) => {
   fs.writeFileSync(getNotifiedRepliesFile(), JSON.stringify(ids, null, 2));
 };
 
+const getRepliesFile = () => getProfilePath('replies.json');
+
+const getReplies = () => {
+  const file = getRepliesFile();
+  if (!fs.existsSync(file)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch (e) {
+    return [];
+  }
+};
+
+const saveReplies = (replies) => {
+  fs.writeFileSync(getRepliesFile(), JSON.stringify(replies, null, 2));
+};
+
 let cachedTwitterScreenName = null;
 const getTwitterScreenName = async (tokenValue, ct0Value) => {
   if (cachedTwitterScreenName) return cachedTwitterScreenName;
@@ -815,38 +831,116 @@ const runBackgroundSearch = async () => {
       }
     }
 
-    // --- Live Twitter Reply Checker ---
+    // --- Live X & Reddit Reply Checker ---
+    const xReplies = [];
     if (activeTwitter?.value) {
       try {
         const screenName = await getTwitterScreenName(activeTwitter.value, activeTwitter.ct0);
         if (screenName) {
-          console.log(`[24/7 Engine] Checking replies for X user: @${screenName}...`);
+          console.log(`[24/7 Engine] Fetching X replies for @${screenName}...`);
           const replies = await scrapeTwitterCli([`to:${screenName}`], 24, activeTwitter.value, activeTwitter.ct0, [], true);
-          const notifiedReplyIds = getNotifiedReplies();
-          const notifiedReplySet = new Set(notifiedReplyIds);
-          let newRepliesCount = 0;
-          
-          for (const reply of replies) {
+          replies.forEach(reply => {
             const authorHandle = reply.userProfile?.handle?.replace('@', '')?.toLowerCase();
-            if (authorHandle === screenName.toLowerCase()) continue;
-            
-            const bareReplyId = reply.id.replace('twitter_', '');
-            if (!notifiedReplySet.has(bareReplyId)) {
-              console.log(`[Telegram Bot] Sending notification for new X reply from @${reply.userProfile?.handle}`);
-              sendTelegramMessage(`📩 <b>New X (Twitter) Reply Received!</b>\n\n👤 <b>From:</b> ${reply.userProfile?.name} (${reply.userProfile?.handle})\n💬 <b>Reply:</b> "${reply.text}"\n🔗 <a href="${reply.postUrl}">View Reply/Thread</a>`);
-              notifiedReplyIds.push(bareReplyId);
-              notifiedReplySet.add(bareReplyId);
-              newRepliesCount++;
+            if (authorHandle !== screenName.toLowerCase()) {
+              xReplies.push(reply);
             }
-          }
-          
-          if (newRepliesCount > 0) {
-            saveNotifiedReplies(notifiedReplyIds);
+          });
+        }
+      } catch (err) {
+        console.error('[24/7 Engine] Failed fetching X replies:', err.message);
+      }
+    }
+
+    const redditReplies = [];
+    if (activeReddit?.value) {
+      try {
+        console.log(`[24/7 Engine] Fetching Reddit replies...`);
+        const pyCode = `
+import sys, json
+from rdt_cli.auth import Credential
+from rdt_cli.client import RedditClient
+cred = Credential(cookies={"reddit_session": "${activeReddit.value}"})
+try:
+    with RedditClient(credential=cred) as client:
+        inbox = client._get("https://old.reddit.com/message/inbox.json")
+        items = inbox.get("data", {}).get("children", [])
+        extracted = []
+        for item in items:
+            data = item.get("data", {})
+            extracted.append({
+                "id": data.get("name"),
+                "author": data.get("author"),
+                "body": data.get("body") or data.get("subject"),
+                "context": data.get("context"),
+                "created_utc": data.get("created_utc"),
+                "new": data.get("new"),
+                "type": item.get("kind")
+            })
+        print(json.dumps(extracted))
+except Exception as e:
+    print(json.dumps({"error": str(e)}))
+`;
+        const pythonPath = isWin ? path.join(home, '.agent-reach-venv', 'Scripts', 'python.exe') : 'python3';
+        const { stdout, error, stderr } = await runCli(pythonPath, ['-c', pyCode], { PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' });
+        if (!error && stdout) {
+          const resp = JSON.parse(stdout);
+          if (Array.isArray(resp)) {
+            resp.forEach(item => {
+              if (item.author && item.author.toLowerCase() !== 'reddit' && item.author.toLowerCase() !== 'automoderator') {
+                redditReplies.push({
+                  id: `reddit_${item.id}`,
+                  platform: 'reddit',
+                  time: new Date(item.created_utc * 1000).toISOString(),
+                  postTime: item.created_utc * 1000,
+                  userProfile: {
+                    name: item.author || 'Reddit User',
+                    handle: `u/${item.author}`,
+                    image: 'https://www.redditstatic.com/avatars/avatar_default_02_FF4500.png'
+                  },
+                  text: item.body || '',
+                  postUrl: item.context ? `https://www.reddit.com${item.context}` : 'https://www.reddit.com/message/inbox',
+                  dmUrl: `https://www.reddit.com/message/compose/?to=${item.author}`
+                });
+              }
+            });
           }
         }
-      } catch (replyErr) {
-        console.error("[24/7 Engine] Reply checker error:", replyErr.message);
+      } catch (err) {
+        console.error('[24/7 Engine] Failed fetching Reddit replies:', err.message);
       }
+    }
+
+    const allNewReplies = [...xReplies, ...redditReplies];
+    if (allNewReplies.length > 0) {
+      const savedReplies = getReplies();
+      const repliesMap = new Map(savedReplies.map(r => [r.id, r]));
+      let brandNewRepliesCount = 0;
+      
+      const notifiedReplyIds = getNotifiedReplies();
+      const notifiedReplySet = new Set(notifiedReplyIds);
+      
+      for (const reply of allNewReplies) {
+        if (!repliesMap.has(reply.id)) {
+          repliesMap.set(reply.id, reply);
+          
+          const bareId = reply.id.replace('twitter_', '').replace('reddit_', '');
+          if (!notifiedReplySet.has(bareId)) {
+            console.log(`[Telegram Bot] Sending notification for new reply from ${reply.userProfile?.handle} on ${reply.platform}`);
+            sendTelegramMessage(`📩 <b>New ${reply.platform === 'twitter' ? 'X (Twitter)' : 'Reddit'} Reply Received!</b>\n\n👤 <b>From:</b> ${reply.userProfile?.name} (${reply.userProfile?.handle})\n💬 <b>Text:</b> "${reply.text}"\n🔗 <a href="${reply.postUrl}">View Reply/Thread</a>`);
+            notifiedReplyIds.push(bareId);
+            notifiedReplySet.add(bareId);
+            brandNewRepliesCount++;
+          }
+        }
+      }
+      
+      if (brandNewRepliesCount > 0) {
+        saveNotifiedReplies(notifiedReplyIds);
+      }
+      
+      const mergedReplies = Array.from(repliesMap.values());
+      mergedReplies.sort((a, b) => b.postTime - a.postTime);
+      saveReplies(mergedReplies);
     }
   } catch (err) {
     console.error("[24/7 Engine] Search error:", err.message);
@@ -1066,6 +1160,15 @@ app.get('/api/inbox-posts', async (req, res) => {
 });
 
 app.get('/api/sent-logs', (req, res) => res.json({ logs: getSentLogs() }));
+app.get('/api/replies', (req, res) => res.json({ replies: getReplies() }));
+app.post('/api/replies/refresh', async (req, res) => {
+  try {
+    await runBackgroundSearch();
+    res.json({ success: true, replies: getReplies() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.post('/api/manual-search', async (req, res) => {
   try {

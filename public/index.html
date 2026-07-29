@@ -212,6 +212,7 @@
     <button class="tab-btn" onclick="switchTab('keywords')">🔍 Keywords</button>
     <button class="tab-btn" onclick="switchTab('templates')">📝 DM Templates</button>
     <button class="tab-btn" onclick="switchTab('leads')">📢 Leads Feed</button>
+    <button class="tab-btn" onclick="switchTab('replies')">📩 Replies</button>
   </nav>
 
   <!-- TAB 1: DASHBOARD -->
@@ -260,6 +261,7 @@
         <span>📜 Live Sent History</span>
         <button class="btn btn-outline btn-sm" onclick="loadData()">🔄 Refresh</button>
       </div>
+      <div id="logsContainer" class="log-list" style="margin-top: 1rem;"></div>
     </div>
   </div>
   <!-- TAB: MANUAL LEAD SEARCH & OUTREACH -->
@@ -416,6 +418,20 @@
     </div>
   </div>
 
+  <!-- TAB 6: REPLIES -->
+  <div id="tab-replies" class="tab-content">
+    <div class="card">
+      <div class="card-title">
+        <span>📩 Received Replies (X & Reddit)</span>
+        <div style="display: flex; gap: 0.4rem;">
+          <button id="refreshRepliesBtn" class="btn btn-primary btn-sm" onclick="triggerRefreshReplies()">⚡ Check New Replies</button>
+          <button class="btn btn-outline btn-sm" onclick="loadReplies()">🔄 Reload List</button>
+        </div>
+      </div>
+      <div id="repliesContainer">Loading...</div>
+    </div>
+  </div>
+
   <script>
     let configData = {};
     let tokensData = { tokens: [] };
@@ -441,12 +457,13 @@
 
     async function loadData() {
       try {
-        const [cfgRes, tokRes, tplRes, inbRes, logRes] = await Promise.all([
+        const [cfgRes, tokRes, tplRes, inbRes, logRes, repRes] = await Promise.all([
           fetch('/api/config').then(r => r.json()),
           fetch('/api/tokens').then(r => r.json()),
           fetch('/api/templates').then(r => r.json()),
           fetch('/api/inbox-posts').then(r => r.json()),
-          fetch('/api/sent-logs').then(r => r.json())
+          fetch('/api/sent-logs').then(r => r.json()),
+          fetch('/api/replies').then(r => r.json())
         ]);
 
         configData = cfgRes;
@@ -470,6 +487,7 @@
         renderTemplates();
         renderLogs(logRes.logs || []);
         renderLeads(inbRes.posts || []);
+        renderReplies(repRes.replies || []);
 
       } catch (err) {
         console.error('Failed loading data', err);
@@ -822,6 +840,64 @@
         btn.innerText = '🚀 Send Outreach';
         btn.disabled = false;
       }
+    }
+
+    async function loadReplies() {
+      try {
+        const res = await fetch('/api/replies').then(r => r.json());
+        renderReplies(res.replies || []);
+      } catch (err) {
+        console.error('Failed loading replies', err);
+      }
+    }
+
+    async function triggerRefreshReplies() {
+      const btn = document.getElementById('refreshRepliesBtn');
+      btn.innerText = '⚡ Checking...';
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/replies/refresh', { method: 'POST' }).then(r => r.json());
+        if (res.success) {
+          renderReplies(res.replies || []);
+          alert('✅ Checked for new replies successfully!');
+        } else {
+          alert('Failed checking replies: ' + (res.error || 'Unknown error'));
+        }
+      } catch (err) {
+        alert('Error: ' + err.message);
+      } finally {
+        btn.innerText = '⚡ Check New Replies';
+        btn.disabled = false;
+      }
+    }
+
+    function renderReplies(replies) {
+      const container = document.getElementById('repliesContainer');
+      if (replies.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-sub); font-size: 0.85rem; text-align: center;">No replies received on X or Reddit yet.</p>';
+        return;
+      }
+      container.innerHTML = replies.map(reply => `
+        <div class="log-item">
+          <div class="log-header">
+            <span>
+              <strong>${reply.userProfile ? reply.userProfile.name : 'User'}</strong> 
+              (<a href="${reply.dmUrl}" target="_blank" style="color:var(--primary); text-decoration:none;">${reply.userProfile ? reply.userProfile.handle : ''}</a>)
+            </span>
+            <span style="color:${reply.platform === 'twitter' ? '#38BDF8' : '#FF4500'}; font-size:0.75rem; font-weight:bold;">
+              ${reply.platform.toUpperCase()}
+            </span>
+          </div>
+          <div style="font-size: 0.72rem; color: var(--text-sub); margin-bottom:0.4rem;">
+            ${new Date(reply.time).toLocaleString()}
+          </div>
+          <div class="log-msg" style="white-space: pre-wrap;">"${reply.text}"</div>
+          <div style="margin-top: 0.5rem; display: flex; gap: 0.4rem;">
+            <a href="${reply.postUrl}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none; display:inline-block; font-size:0.7rem;">🔗 View Reply</a>
+            <a href="${reply.dmUrl}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none; display:inline-block; font-size:0.7rem;">💬 Chat / Reply</a>
+          </div>
+        </div>
+      `).join('');
     }
 
     loadData();
