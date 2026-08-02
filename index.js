@@ -265,30 +265,58 @@ const saveReplies = (replies) => {
 };
 
 let cachedTwitterScreenName = null;
-const getTwitterScreenName = async (tokenValue, ct0Value) => {
-  if (cachedTwitterScreenName) return cachedTwitterScreenName;
+let cachedTwitterUserId = null;
+
+const getTwitterMe = async (tokenValue, ct0Value) => {
+  if (cachedTwitterScreenName && cachedTwitterUserId) {
+    return { screenName: cachedTwitterScreenName, userId: cachedTwitterUserId };
+  }
   const pyCode = `
 import sys, json
 from twitter_cli.client import TwitterClient
 client = TwitterClient(auth_token="${tokenValue}", ct0="${ct0Value || ''}")
 try:
     me = client.fetch_me()
-    print(json.dumps({"screen_name": me.screen_name}))
+    print(json.dumps({"screen_name": me.screen_name, "id": str(me.id)}))
 except Exception as e:
     print(json.dumps({"error": str(e)}))
 `;
   const pythonPath = isWin ? path.join(home, '.agent-reach-venv', 'Scripts', 'python.exe') : 'python3';
   try {
     const { stdout } = await runCli(pythonPath, ['-c', pyCode], { PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' });
-    const resp = JSON.parse(stdout || '{}');
-    if (resp.screen_name) {
-      cachedTwitterScreenName = resp.screen_name;
-      return cachedTwitterScreenName;
+    if (stdout) {
+      const resp = JSON.parse(stdout);
+      if (resp.screen_name) {
+        cachedTwitterScreenName = resp.screen_name;
+        cachedTwitterUserId = resp.id;
+        return { screenName: resp.screen_name, userId: resp.id };
+      }
     }
   } catch (err) {
-    console.error('Failed to resolve Twitter screen name:', err.message);
+    console.error('Failed to resolve Twitter me:', err.message);
   }
   return null;
+};
+
+const getTwitterScreenName = async (tokenValue, ct0Value) => {
+  const me = await getTwitterMe(tokenValue, ct0Value);
+  return me ? me.screenName : null;
+};
+
+const getNotifiedDMsFile = () => getProfilePath('notified_dms.json');
+
+const getNotifiedDMs = () => {
+  const file = getNotifiedDMsFile();
+  if (!fs.existsSync(file)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch (e) {
+    return [];
+  }
+};
+
+const saveNotifiedDMs = (ids) => {
+  fs.writeFileSync(getNotifiedDMsFile(), JSON.stringify(ids, null, 2));
 };
 
 const getConfig = () => {
@@ -525,6 +553,17 @@ let telegramChatId = null;
 let hasSentWelcomeMessage = false;
 let lastTelegramUpdateId = 0;
 
+try {
+  const persistedChatId = getConfig().telegramChatId;
+  if (persistedChatId) {
+    telegramChatId = persistedChatId;
+    hasSentWelcomeMessage = true;
+    console.log(`[Telegram Bot] Loaded persisted Chat ID from config: ${persistedChatId}`);
+  }
+} catch (e) {
+  console.error('Failed to load persisted telegramChatId:', e.message);
+}
+
 const sendTelegramMessage = (text) => {
   if (!telegramChatId) return;
   const https = require('https');
@@ -548,18 +587,29 @@ const pollTelegramChatId = () => {
       try {
         const json = JSON.parse(data);
         if (json.ok && json.result && json.result.length > 0) {
+          let chatChanged = false;
           json.result.forEach(update => {
             if (update.update_id > lastTelegramUpdateId) {
               lastTelegramUpdateId = update.update_id;
             }
             const chatId = update?.message?.chat?.id || update?.channel_post?.chat?.id;
-            if (chatId) telegramChatId = chatId;
+            if (chatId && telegramChatId !== chatId) {
+              telegramChatId = chatId;
+              chatChanged = true;
+            }
           });
+
+          if (chatChanged && telegramChatId) {
+            const cfg = getConfig();
+            cfg.telegramChatId = telegramChatId;
+            saveConfig(cfg);
+            console.log(`[Telegram Bot] Persisted new Chat ID: ${telegramChatId}`);
+          }
 
           if (telegramChatId && !hasSentWelcomeMessage) {
             hasSentWelcomeMessage = true;
             console.log(`[Telegram Bot] Connected to user Chat ID: ${telegramChatId}`);
-            sendTelegramMessage('🟢 <b>ReachCompanion Telegram Bot Connected!</b>\n\nYou will receive live notifications here whenever an auto-comment is posted or a reply is received!');
+            sendTelegramMessage('🟢 <b>ReachCompanion Telegram Bot Connected!</b>\n\nYou will receive live notifications here whenever an auto-comment is posted, a reply is received, or a DM/Chat Request arrives!');
           }
         }
       } catch (e) {}
@@ -941,6 +991,77 @@ except Exception as e:
       const mergedReplies = Array.from(repliesMap.values());
       mergedReplies.sort((a, b) => b.postTime - a.postTime);
       saveReplies(mergedReplies);
+    }
+
+    // --- Live X Direct Messages & Chat Requests Checker ---
+    if (activeTwitter?.value) {
+      try {
+        const me = await getTwitterMe(activeTwitter.value, activeTwitter.ct0);
+        if (me && me.userId) {
+          console.log(`[24/7 Engine] Fetching X DMs for @${me.screenName} (ID: ${me.userId})...`);
+          
+          const pyCode = `
+import sys, json
+from twitter_cli.client import TwitterClient
+client = TwitterClient(auth_token="${activeTwitter.value}", ct0="${activeTwitter.ct0 || ''}")
+try:
+    res = client._api_request('https://api.twitter.com/1.1/dm/inbox_initial_state.json')
+    print(json.dumps(res))
+except Exception as e:
+    print(json.dumps({"error": str(e)}))
+`;
+          const pythonPath = isWin ? path.join(home, '.agent-reach-venv', 'Scripts', 'python.exe') : 'python3';
+          const { stdout, error } = await runCli(pythonPath, ['-c', pyCode], { PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' });
+          if (!error && stdout) {
+            const resp = JSON.parse(stdout);
+            const inbox = resp.inbox_initial_state || {};
+            const conversations = inbox.conversations || {};
+            const entries = inbox.entries || [];
+            const users = inbox.users || {};
+            
+            const notifiedDMs = getNotifiedDMs();
+            const notifiedDMSet = new Set(notifiedDMs);
+            let newDMsCount = 0;
+            
+            for (const entry of entries) {
+              const msg = entry.message;
+              if (!msg || !msg.message_data) continue;
+              
+              const msgId = msg.id;
+              const senderId = msg.message_data.sender_id;
+              const text = msg.message_data.text || '';
+              
+              if (senderId === me.userId) continue;
+              
+              if (!notifiedDMSet.has(msgId)) {
+                const senderObj = users[senderId] || {};
+                const senderName = senderObj.name || 'Twitter User';
+                const senderHandle = senderObj.screen_name ? `@${senderObj.screen_name}` : 'twitter';
+                
+                const convId = msg.conversation_id;
+                const convObj = conversations[convId] || {};
+                const isRequest = convObj.status === 'REQUESTED';
+                
+                const title = isRequest ? '📩 <b>New X Chat Request Received!</b>' : '💬 <b>New X Direct Message Received!</b>';
+                const dmLink = `https://x.com/messages/${convId}`;
+                
+                console.log(`[Telegram Bot] Sending notification for new DM/Request from ${senderHandle}`);
+                sendTelegramMessage(`${title}\n\n👤 <b>From:</b> ${senderName} (${senderHandle})\n💬 <b>Message:</b> "${text}"\n🔗 <a href="${dmLink}">Open Conversation</a>`);
+                
+                notifiedDMs.push(msgId);
+                notifiedDMSet.add(msgId);
+                newDMsCount++;
+              }
+            }
+            
+            if (newDMsCount > 0) {
+              saveNotifiedDMs(notifiedDMs);
+            }
+          }
+        }
+      } catch (dmErr) {
+        console.error('[24/7 Engine] DM check failed:', dmErr.message);
+      }
     }
   } catch (err) {
     console.error("[24/7 Engine] Search error:", err.message);
